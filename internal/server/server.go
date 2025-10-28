@@ -44,6 +44,8 @@ func New(cfg config.Config) *Server {
 	// Status (Mongo connectivity JSON)
 	r.Get("/status", handlers.Status)
 
+	r.Get("/debug/env", handlers.EnvProbe)
+
 	// CRUD demo
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/items", handlers.ItemsList)
