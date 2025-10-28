@@ -4,7 +4,7 @@ substitutions:
   _SERVICE: go-api-staging
   _IMAGE_NAME: go-api
   _DB_NAME: app
-  _MONGO_SECRET: MONGO_URI_STAGING
+  _MONGO_SECRET: MONGO_URI
 
 options:
   logging: CLOUD_LOGGING_ONLY    # required by your org policy when using a custom SA
