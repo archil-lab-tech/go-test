@@ -27,10 +27,10 @@ type Server struct {
 func New(cfg config.Config) *Server {
 	r := chi.NewRouter()
 
-	common.SetRuntime(&cfg)
-
 	// Make runtime config available to handlers ASAP
-	handlers.SetRuntime(&cfg)
+	common.SetRuntime(&cfg)
+	// (Remove this duplicate to avoid confusion)
+	// handlers.SetRuntime(&cfg)
 
 	// Core middleware
 	r.Use(chimw.RequestID)
@@ -38,25 +38,23 @@ func New(cfg config.Config) *Server {
 	r.Use(mid.RecoverJSON)
 	r.Use(mid.Logger)
 
-	// Public routes
+	// Public JSON routes
 	r.Get("/", handlers.RootJSON)
 	r.Get("/healthz", handlers.Healthz)
 	r.Get("/readyz", handlers.Readyz)
+	r.Get("/status", handlers.Status)
 
 	// Debug helpers
 	r.Get("/debug/env", handlers.EnvProbe)
-	r.Get("/egress-ip", handlers.EgressIP) // returns public egress IP
-	// in server.New()
+	r.Get("/egress-ip", handlers.EgressIP)
 	r.Get("/debug/mongo", handlers.MongoDiag)
 
-	// WS demo UI and endpoint
-	r.Get("/ui", handlers.UI) // HTML page
-	r.Get("/ws", handlers.WS) // WebSocket JSON stream
+	// WS demo + Swagger (non-JSON)
+	r.Get("/ui", handlers.UI) // HTML
+	r.Get("/ws", handlers.WS) // WebSocket
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
-	// Status (Mongo connectivity JSON)
-	r.Get("/status", handlers.Status)
-
-	// CRUD demo
+	// CRUD demo (JSON)
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/items", handlers.ItemsList)
 		api.Post("/items", handlers.ItemCreate)
@@ -66,25 +64,32 @@ func New(cfg config.Config) *Server {
 		api.Delete("/items/{id}", handlers.ItemDelete)
 	})
 
-	// Swagger UI
-	r.Get("/swagger/*", httpSwagger.WrapHandler)
+	// Force JSON for 404/405 coming through your app
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		common.WriteJSON(w, http.StatusNotFound, map[string]any{
+			"ok": false, "error": "not_found", "path": r.URL.Path,
+		})
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		common.WriteJSON(w, http.StatusMethodNotAllowed, map[string]any{
+			"ok": false, "error": "method_not_allowed", "method": r.Method, "path": r.URL.Path,
+		})
+	})
 
 	s := &http.Server{
-		Addr:              ":" + cfg.Port, // Cloud Run provides PORT
+		Addr:              ":" + cfg.Port, // Cloud Run injects PORT
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-
 	return &Server{cfg: cfg, srv: s}
 }
 
 func (s *Server) Start() error {
 	errCh := make(chan error, 1)
 
-	// Start HTTP listener
 	go func() {
 		log.Info().Str("addr", s.srv.Addr).Msg("http: listening")
 		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -94,7 +99,7 @@ func (s *Server) Start() error {
 		close(errCh)
 	}()
 
-	// Handle SIGINT/SIGTERM for graceful shutdown
+	// Graceful shutdown on SIGINT/SIGTERM
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
@@ -107,7 +112,6 @@ func (s *Server) Start() error {
 		}
 	}
 
-	// Graceful HTTP shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := s.srv.Shutdown(ctx); err != nil {
