@@ -4,28 +4,30 @@ ARG GO_VERSION=1.25
 FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 
-# Static binary, let Go auto-fetch matching toolchain if needed
 ENV CGO_ENABLED=0 GOTOOLCHAIN=auto
 
-# ---- deps (cacheable) ----
+# deps
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-# ---- source ----
+# build
 COPY . .
-
-# Build ONLY the main package (your entrypoint is cmd/api)
-ARG MAIN_PATH=./cmd/api
+# build ONLY your main package (adjust path if needed)
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    go build -trimpath -ldflags="-s -w" -o /out/app ${MAIN_PATH}
+    go build -ldflags="-s -w" -o /out/app ./cmd/api
 
-# ---- minimal runtime ----
-# Use base-debian12 (not static) so TLS roots are present for Mongo Atlas etc.
-FROM gcr.io/distroless/base-debian12:nonroot
+# stage with CA certificates
+FROM debian:bookworm-slim AS certs
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && update-ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# minimal runtime + CA roots
+FROM gcr.io/distroless/static:nonroot
 WORKDIR /app
+# copy CA bundle so TLS works (MongoDB Atlas requires TLS)
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /out/app /app/app
-USER nonroot:nonroot
-EXPOSE 8080
 ENTRYPOINT ["/app/app"]
