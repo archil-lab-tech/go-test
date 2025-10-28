@@ -34,7 +34,6 @@ steps:
           --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:${SHORT_SHA} \
           --allow-unauthenticated \
           --service-account="go-api-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-#          --set-env-vars=PORT=8080,DB_NAME=${_DB_NAME},ENV=${_SERVICE} \
           --set-env-vars=DB_NAME=${_DB_NAME},ENV=${_SERVICE} \
           --set-secrets=MONGO_URI=MONGO_URI:latest
 
