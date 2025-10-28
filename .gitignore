@@ -1,0 +1,59 @@
+# --- Go build artifacts ---
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+*.coverprofile
+*.cov
+*.lcov
+
+# Binaries / local build dirs
+/bin/
+/build/
+/dist/
+/out/
+/tmp/
+
+# Go workspaces (optional)
+go.work
+go.work.sum
+
+# Dependencies (usually not committed)
+vendor/
+
+# Logs
+*.log
+logs/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.iml
+*.code-workspace
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Env & secrets
+.env
+.env.*
+*.local
+*.secret
+secrets/
+*.key
+*.pem
+
+# Generated Swagger docs (if you run swag locally)
+internal/docs/
+
+# Node (if you later add a small frontend)
+node_modules/
+
+# Docker misc (local cache dirs if you use them)
+.docker-cache/
