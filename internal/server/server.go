@@ -58,11 +58,13 @@ func New(cfg config.Config) *Server {
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	s := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		// Cloud Run injects PORT; cfg.Port already contains the numeric string (e.g., "8080")
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	return &Server{cfg: cfg, srv: s}
 }
@@ -71,25 +73,43 @@ func (s *Server) Start() error {
 	// Share cfg with handlers
 	handlers.SetRuntime(&s.cfg)
 
+	errCh := make(chan error, 1)
+
+	// Start HTTP listener
 	go func() {
 		log.Info().Str("addr", s.srv.Addr).Msg("http: listening")
 		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("http: listen failed")
+			errCh <- err
+			return
 		}
+		close(errCh)
 	}()
 
-	// graceful shutdown
+	// Handle SIGINT/SIGTERM for graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+
+	select {
+	case sig := <-stop:
+		log.Info().Str("sig", sig.String()).Msg("http: shutdown signal received")
+	case err := <-errCh:
+		// Listen error bubbled up
+		if err != nil {
+			return err
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if s.cfg.Mongo != nil {
-		_ = s.cfg.Mongo.Disconnect(ctx)
-	}
+
+	// Graceful HTTP shutdown
 	if err := s.srv.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("http: shutdown error")
 	}
+
+	// Close Mongo (safe if nil)
+	config.CloseMongo(ctx, &s.cfg)
+
 	log.Info().Msg("http: stopped")
 	return nil
 }

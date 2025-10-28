@@ -70,3 +70,15 @@ func getenv(k, d string) string {
 	}
 	return d
 }
+
+// CloseMongo closes the Mongo client gracefully.
+func CloseMongo(ctx context.Context, cfg *Config) {
+	if cfg.Mongo == nil {
+		return
+	}
+	if err := cfg.Mongo.Disconnect(ctx); err != nil {
+		log.Error().Err(err).Msg("mongo disconnect failed")
+	} else {
+		log.Info().Msg("mongo disconnected")
+	}
+}
