@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"archil.lab.tech.com/internal/common"
 	"archil.lab.tech.com/internal/config"
 	"archil.lab.tech.com/internal/handlers"
 	"archil.lab.tech.com/internal/mid"
@@ -26,6 +27,11 @@ type Server struct {
 func New(cfg config.Config) *Server {
 	r := chi.NewRouter()
 
+	common.SetRuntime(&cfg)
+
+	// Make runtime config available to handlers ASAP
+	handlers.SetRuntime(&cfg)
+
 	// Core middleware
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -37,14 +43,16 @@ func New(cfg config.Config) *Server {
 	r.Get("/healthz", handlers.Healthz)
 	r.Get("/readyz", handlers.Readyz)
 
+	// Debug helpers
+	r.Get("/debug/env", handlers.EnvProbe)
+	r.Get("/egress-ip", handlers.EgressIP) // returns public egress IP
+
 	// WS demo UI and endpoint
 	r.Get("/ui", handlers.UI) // HTML page
 	r.Get("/ws", handlers.WS) // WebSocket JSON stream
 
 	// Status (Mongo connectivity JSON)
 	r.Get("/status", handlers.Status)
-
-	r.Get("/debug/env", handlers.EnvProbe)
 
 	// CRUD demo
 	r.Route("/api/v1", func(api chi.Router) {
@@ -60,21 +68,18 @@ func New(cfg config.Config) *Server {
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	s := &http.Server{
-		// Cloud Run injects PORT; cfg.Port already contains the numeric string (e.g., "8080")
-		Addr:              ":" + cfg.Port,
+		Addr:              ":" + cfg.Port, // Cloud Run provides PORT
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+
 	return &Server{cfg: cfg, srv: s}
 }
 
 func (s *Server) Start() error {
-	// Share cfg with handlers
-	handlers.SetRuntime(&s.cfg)
-
 	errCh := make(chan error, 1)
 
 	// Start HTTP listener
@@ -95,22 +100,17 @@ func (s *Server) Start() error {
 	case sig := <-stop:
 		log.Info().Str("sig", sig.String()).Msg("http: shutdown signal received")
 	case err := <-errCh:
-		// Listen error bubbled up
 		if err != nil {
 			return err
 		}
 	}
 
+	// Graceful HTTP shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	// Graceful HTTP shutdown
 	if err := s.srv.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("http: shutdown error")
 	}
-
-	// Close Mongo (safe if nil)
-	config.CloseMongo(ctx, &s.cfg)
 
 	log.Info().Msg("http: stopped")
 	return nil

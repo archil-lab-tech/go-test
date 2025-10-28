@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"archil.lab.tech.com/internal/common"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -18,16 +19,17 @@ func Status(w http.ResponseWriter, r *http.Request) {
 	}
 	out := resp{OK: true, Data: map[string]any{"db": "app"}, Time: time.Now().UTC()}
 
-	if runtimeCfg == nil {
+	cfg := common.Runtime()
+	if cfg == nil {
 		out.Data["configured"] = false
 		out.Data["error"] = "runtime config not set"
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
 
-	hasEnv := strings.TrimSpace(runtimeCfg.MongoURI) != ""
+	hasEnv := strings.TrimSpace(cfg.MongoURI) != ""
 	out.Data["has_env"] = hasEnv
-	out.Data["db"] = runtimeCfg.DBName
+	out.Data["db"] = cfg.DBName
 
 	if !hasEnv {
 		out.Data["configured"] = false
@@ -37,21 +39,19 @@ func Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// We have an env; check whether the client is connected.
-	connected := runtimeCfg.Mongo != nil
+	connected := cfg.Mongo != nil
 	out.Data["configured"] = true
 	out.Data["mongo_ok"] = connected
 
-	// If connected, do a quick ping to be sure.
 	if connected {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := runtimeCfg.DB.RunCommand(ctx, bson.D{{Key: "ping", Value: 1}}).Err(); err != nil {
+		if err := cfg.DB.RunCommand(ctx, bson.D{{Key: "ping", Value: 1}}).Err(); err != nil {
 			out.Data["mongo_ok"] = false
 			out.Data["error"] = "mongo ping failed: " + err.Error()
 		}
 	} else {
-		out.Data["error"] = "mongo not connected (very likely blocked by Atlas IP allowlist)"
+		out.Data["error"] = "mongo not connected (likely Atlas allowlist)"
 	}
 
 	_ = json.NewEncoder(w).Encode(out)
