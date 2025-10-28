@@ -35,7 +35,6 @@ func MongoDiag(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(resp)
 		return
 	}
-
 	uri := strings.TrimSpace(cfg.MongoURI)
 	resp.HasEnv = uri != ""
 	if uri == "" {
@@ -44,29 +43,35 @@ func MongoDiag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse URI to list hosts & do DNS
+	// List DNS resolutions for hosts in the connection string
 	if cs, err := connstring.ParseAndValidate(uri); err == nil {
-		for _, h := range cs.Hosts {
-			hh := dnsRes{Host: h}
-			ips, err := net.DefaultResolver.LookupHost(context.Background(), h)
-			if err != nil {
-				hh.Err = err.Error()
-			} else {
-				hh.IPs = ips
+		for _, raw := range cs.Hosts {
+			host := raw
+			// If a :port suffix is present, strip it for LookupHost
+			if h, _, e := net.SplitHostPort(raw); e == nil && h != "" {
+				host = h
+			} else if idx := strings.Index(raw, ":"); idx > 0 {
+				host = raw[:idx]
 			}
-			resp.Hosts = append(resp.Hosts, hh)
+			entry := dnsRes{Host: raw}
+			ips, err := net.DefaultResolver.LookupHost(context.Background(), host)
+			if err != nil {
+				entry.Err = err.Error()
+			} else {
+				entry.IPs = ips
+			}
+			resp.Hosts = append(resp.Hosts, entry)
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
-	opts := options.Client().
+	clOpts := options.Client().
 		ApplyURI(uri).
 		SetServerAPIOptions(options.ServerAPI(options.ServerAPIVersion1)).
 		SetAppName("go-api-diag")
-
-	cl, err := mongo.Connect(ctx, opts)
+	cl, err := mongo.Connect(ctx, clOpts)
 	if err != nil {
 		resp.Error = "connect: " + err.Error()
 		_ = json.NewEncoder(w).Encode(resp)
