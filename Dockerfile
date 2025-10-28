@@ -1,25 +1,28 @@
-# ---- build ----
-FROM golang:1.22-bookworm AS build
+# syntax=docker/dockerfile:1
+
+ARG GO_VERSION=1.25
+FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 
-# deps first (cache)
-COPY go.mod ./
+# Allow the go tool to auto-install matching toolchains if needed
+ENV CGO_ENABLED=0 GOTOOLCHAIN=auto
+
+# deps first for better caching
+COPY go.mod go.sum ./
 RUN go mod download
 
-# source
+# app source
 COPY . .
 
-# install swag and generate docs
-RUN go install github.com/swaggo/swag/cmd/swag@v1.16.3
-RUN swag init -g cmd/api/main.go -o internal/docs --parseInternal --parseDependency
+# build (adjust ./cmd/server if your main.go is elsewhere)
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -ldflags="-s -w" -o /out/app ./...
 
-# build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /bin/app ./cmd/api
-
-# ---- run ----
-FROM gcr.io/distroless/base-debian12
-ENV PORT=8080
-USER nonroot
-COPY --from=build /bin/app /app
+# small runtime image
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /app
+COPY --from=build /out/app /app/app
+USER nonroot:nonroot
 EXPOSE 8080
-ENTRYPOINT ["/app"]
+ENTRYPOINT ["/app/app"]
