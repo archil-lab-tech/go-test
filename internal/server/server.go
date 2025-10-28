@@ -46,6 +46,8 @@ func New(cfg config.Config) *Server {
 	// Debug helpers
 	r.Get("/debug/env", handlers.EnvProbe)
 	r.Get("/egress-ip", handlers.EgressIP) // returns public egress IP
+	// in server.New()
+	r.Get("/debug/mongo", handlers.MongoDiag)
 
 	// WS demo UI and endpoint
 	r.Get("/ui", handlers.UI) // HTML page
