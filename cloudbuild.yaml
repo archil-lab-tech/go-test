@@ -1,17 +1,29 @@
 substitutions:
   _REGION: europe-west3
   _AR_REPO: app
-  _SERVICE: go-api-staging        # default; override in prod trigger
+  _SERVICE: go-api-staging
   _IMAGE_NAME: go-api
   _DB_NAME: app
-  _MONGO_SECRET: MONGO_URI_STAGING # override to MONGO_URI_PROD in prod trigger
+  _MONGO_SECRET: MONGO_URI_STAGING
+
+options:
+  logging: CLOUD_LOGGING_ONLY    # required by your org policy when using a custom SA
 
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:${SHORT_SHA}','.']
+    env:
+      - DOCKER_BUILDKIT=1        # <-- enable BuildKit
+      - BUILDKIT_PROGRESS=plain  # nicer logs
+    args:
+      - build
+      - -t
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
+      - .
 
   - name: gcr.io/cloud-builders/docker
-    args: ['push','${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:${SHORT_SHA}']
+    args:
+      - push
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
@@ -25,7 +37,6 @@ steps:
           --service-account="go-api-sa@$PROJECT_ID.iam.gserviceaccount.com" \
           --set-env-vars=PORT=8080,DB_NAME=${_DB_NAME},ENV=${_SERVICE} \
           --set-secrets=MONGO_URI=${_MONGO_SECRET}:latest
+
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
-options:
-  logging: CLOUD_LOGGING_ONLY
