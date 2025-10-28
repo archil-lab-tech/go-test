@@ -4,22 +4,26 @@ ARG GO_VERSION=1.25
 FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 
-# enable toolchain auto-download; disable cgo for static binary
-ENV GOTOOLCHAIN=auto CGO_ENABLED=0
+# Static binary, let Go auto-fetch matching toolchain if needed
+ENV CGO_ENABLED=0 GOTOOLCHAIN=auto
 
-# download deps (cache with BuildKit)
+# ---- deps (cacheable) ----
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
-# build app (cache Go build artifacts)
+# ---- source ----
 COPY . .
+
+# Build ONLY the main package (your entrypoint is cmd/api)
+ARG MAIN_PATH=./cmd/api
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    go build -ldflags="-s -w" -o /out/app ./...
+    go build -trimpath -ldflags="-s -w" -o /out/app ${MAIN_PATH}
 
-# minimal runtime image
-FROM gcr.io/distroless/static:nonroot
+# ---- minimal runtime ----
+# Use base-debian12 (not static) so TLS roots are present for Mongo Atlas etc.
+FROM gcr.io/distroless/base-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/app /app/app
 USER nonroot:nonroot
